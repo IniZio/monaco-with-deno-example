@@ -11,7 +11,7 @@ function parseDependencies(source: string): string[] {
     .filter(x => !!x);
 }
 
-const code = `import { HookEvent } from "https://deno.land/x/authgear_deno_hook@v0.3.0/mod.ts";
+const code = `import { HookEvent } from "https://deno.land/x/authgear_deno_hook@v0.4.0/mod.ts";
 
 export default async function(e: HookEvent): Promise<void> {
   // Write your hook with the help of the type definition.
@@ -55,8 +55,8 @@ function App() {
 
       const source = `declare module '${dep}' { ${await fetch(dep).then((r) => r.text())} }`;
 
-      monaco.languages.typescript.typescriptDefaults.addExtraLib(source, `file:///node_modules/@types/${dep}/index.d.ts`);
-      monaco.editor.createModel(source, 'typescript', monaco.Uri.file(`file:///node_modules/@types/${dep}/index.d.ts`));
+      monaco.languages.typescript.typescriptDefaults.addExtraLib(source, `inmemory://model/${dep}`);
+      monaco.editor.createModel(source, 'typescript', monaco.Uri.file(`inmemory://model/${dep}`));
     }
   }, [])
 
@@ -66,7 +66,6 @@ function App() {
     let options = monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
     options.strictNullChecks = true
     options.moduleResolution = monaco.languages.typescript.ModuleResolutionKind.NodeJs;
-    options.typeRoots = ["node_modules/@types"];
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions(options);
 
     resolveImports(editor.getValue());
