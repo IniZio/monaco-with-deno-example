@@ -1,7 +1,15 @@
-import { useCallback } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import './App.css'
 import CodeEditor from './CodeEditor'
-import { OnMount } from '@monaco-editor/react';
+import { Monaco, OnChange, OnMount } from '@monaco-editor/react';
+
+const REGEX_DETECT_IMPORT = /(?:(?:(?:import)|(?:export))(?:.)*?from\s+["']([^"']+)["'])|(?:require(?:\s+)?\(["']([^"']+)["']\))|(?:\/+\s+<reference\s+path=["']([^"']+)["']\s+\/>)/g;
+
+function parseDependencies(source: string): string[] {
+  return [...source.matchAll(REGEX_DETECT_IMPORT)]
+    .map(x => x[1] ?? x[2] ?? x[3])
+    .filter(x => !!x);
+}
 
 const code = `import { HookEvent } from "https://deno.land/x/authgear_deno_hook@v0.3.0/mod.ts";
 
@@ -26,24 +34,51 @@ export default async function(e: HookEvent): Promise<void> {
 `
 
 function App() {
+  const monacoRef = useRef<Monaco>();
+  const [resolvedDeps, _] = useState(() => new Map());
+
+  const resolveImports = useCallback(async (value: string | undefined) => {
+    if (!value) {
+      return;
+    }
+
+    const monaco = monacoRef.current;
+    if (!monaco) {
+      return;
+    }
+
+    for (const dep of parseDependencies(value)) {
+      if (resolvedDeps.has(dep)) {
+        continue;
+      }
+      resolvedDeps.set(dep, true);
+
+      const source = `declare module '${dep}' { ${await fetch(dep).then((r) => r.text())} }`;
+
+      monaco.languages.typescript.typescriptDefaults.addExtraLib(source, `file:///node_modules/@types/${dep}/index.d.ts`);
+      monaco.editor.createModel(source, 'typescript', monaco.Uri.file(`file:///node_modules/@types/${dep}/index.d.ts`));
+    }
+  }, [])
+
   const handleEditorMount = useCallback<OnMount>(async (editor, monaco) => {
+    monacoRef.current = monaco;
+
     let options = monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
     options.strictNullChecks = true
     options.moduleResolution = monaco.languages.typescript.ModuleResolutionKind.NodeJs;
-    options.typeRoots = ["node_modules/@types"]
-    monaco.languages.typescript.typescriptDefaults.setCompilerOptions(options)
+    options.typeRoots = ["node_modules/@types"];
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions(options);
 
-    const URLImport = "https://deno.land/x/authgear_deno_hook@v0.3.0/mod.ts";
-    const source = `declare module '${URLImport}' { ${await fetch(URLImport).then((r) => r.text())} }`;
+    resolveImports(editor.getValue());
+  }, []);
 
-    // URLImport here does not matter as long as match these 2 lines
-    monaco.languages.typescript.typescriptDefaults.addExtraLib(source, `file:///node_modules/@types/${URLImport}/index.d.ts`);
-    monaco.editor.createModel(source, 'typescript', monaco.Uri.file(`file:///node_modules/@types/${URLImport}/index.d.ts`));
-  }, [])
+  const handleEditorChange = useCallback<OnChange>(async (value) => {
+    resolveImports(value);
+  }, []);
 
   return (
     <div className="App">
-      <CodeEditor className="editor" language="typescript" value={code} onMount={handleEditorMount} options={{ minimap: { enabled: false } }} />
+      <CodeEditor className="editor" language="typescript" value={code} onMount={handleEditorMount} onChange={handleEditorChange} options={{ minimap: { enabled: false } }} />
     </div>
   )
 }
